@@ -217,6 +217,7 @@ async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   agentIdentifier?: string,
+  isMain?: boolean,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -293,6 +294,7 @@ export async function runContainerAgent(
     mounts,
     containerName,
     agentIdentifier,
+    input.isMain,
   );
 
   logger.debug(
