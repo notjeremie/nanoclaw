@@ -1,4 +1,6 @@
 import https from 'https';
+import fs from 'fs';
+import path from 'path';
 import { Api, Bot } from 'grammy';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
@@ -38,6 +40,84 @@ async function sendTelegramMessage(
     // Fallback: send as plain text if Markdown parsing fails
     logger.debug({ err }, 'Markdown send failed, falling back to plain text');
     await api.sendMessage(chatId, text, options);
+  }
+}
+
+// Bot pool for agent teams: send-only Api instances (no polling)
+const poolApis: Api[] = [];
+// Maps "{groupFolder}:{senderName}" → pool Api index for stable assignment
+const senderBotMap = new Map<string, number>();
+let nextPoolIndex = 0;
+
+/**
+ * Initialize send-only Api instances for the bot pool.
+ * Each pool bot can send messages but doesn't poll for updates.
+ */
+export async function initBotPool(tokens: string[]): Promise<void> {
+  for (const token of tokens) {
+    try {
+      const api = new Api(token);
+      const me = await api.getMe();
+      poolApis.push(api);
+      logger.info(
+        { username: me.username, id: me.id, poolSize: poolApis.length },
+        'Pool bot initialized',
+      );
+    } catch (err) {
+      logger.error({ err }, 'Failed to initialize pool bot');
+    }
+  }
+  if (poolApis.length > 0) {
+    logger.info({ count: poolApis.length }, 'Telegram bot pool ready');
+  }
+}
+
+/**
+ * Send a message via a pool bot assigned to the given sender name.
+ * Assigns bots round-robin on first use; subsequent messages from the
+ * same sender in the same group always use the same bot.
+ * On first assignment, renames the bot to match the sender's role.
+ */
+export async function sendPoolMessage(
+  chatId: string,
+  text: string,
+  sender: string,
+  groupFolder: string,
+): Promise<void> {
+  if (poolApis.length === 0) {
+    return;
+  }
+
+  const key = `${groupFolder}:${sender}`;
+  let idx = senderBotMap.get(key);
+  if (idx === undefined) {
+    idx = nextPoolIndex % poolApis.length;
+    nextPoolIndex++;
+    senderBotMap.set(key, idx);
+    // Rename the bot to match the sender's role, then wait for Telegram to propagate
+    try {
+      await poolApis[idx].setMyName(sender);
+      await new Promise((r) => setTimeout(r, 2000));
+      logger.info({ sender, groupFolder, poolIndex: idx }, 'Assigned and renamed pool bot');
+    } catch (err) {
+      logger.warn({ sender, err }, 'Failed to rename pool bot (sending anyway)');
+    }
+  }
+
+  const api = poolApis[idx];
+  try {
+    const numericId = chatId.replace(/^tg:/, '');
+    const MAX_LENGTH = 4096;
+    if (text.length <= MAX_LENGTH) {
+      await sendTelegramMessage(api, numericId, text);
+    } else {
+      for (let i = 0; i < text.length; i += MAX_LENGTH) {
+        await sendTelegramMessage(api, numericId, text.slice(i, i + MAX_LENGTH));
+      }
+    }
+    logger.info({ chatId, sender, poolIndex: idx, length: text.length }, 'Pool message sent');
+  } catch (err) {
+    logger.error({ chatId, sender, err }, 'Failed to send pool message');
   }
 }
 
@@ -199,9 +279,59 @@ export class TelegramChannel implements Channel {
       });
     };
 
-    this.bot.on('message:photo', (ctx) => storeNonText(ctx, '[Photo]'));
+    this.bot.on('message:photo', async (ctx) => {
+      try {
+        const chatJid = `tg:${ctx.chat.id}`;
+        const group = this.opts.registeredGroups()[chatJid];
+        if (!group) return;
+        const photos = ctx.message.photo;
+        const largest = photos[photos.length - 1];
+        const fileInfo = await ctx.api.getFile(largest.file_id);
+        const filePath = fileInfo.file_path;
+        const token = readEnvFile(['TELEGRAM_BOT_TOKEN'])['TELEGRAM_BOT_TOKEN'] || '';
+        const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
+        const photoBuffer = await new Promise<Buffer>((resolve, reject) => {
+          https.get(url, (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => resolve(Buffer.concat(chunks)));
+            res.on('error', reject);
+          }).on('error', reject);
+        });
+        const photoDir = path.join(process.cwd(), 'groups', group.folder, 'photos');
+        fs.mkdirSync(photoDir, { recursive: true });
+        const filename = `photo_${Date.now()}.jpg`;
+        fs.writeFileSync(path.join(photoDir, filename), photoBuffer);
+        storeNonText(ctx, `[Photo: /workspace/group/photos/${filename}]`);
+      } catch (err) {
+        logger.error({ err }, 'Failed to save photo');
+        storeNonText(ctx, '[Photo]');
+      }
+    });
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
-    this.bot.on('message:voice', (ctx) => storeNonText(ctx, '[Voice message]'));
+    this.bot.on('message:voice', async (ctx) => {
+      try {
+        const fileId = ctx.message.voice.file_id;
+        const fileInfo = await ctx.api.getFile(fileId);
+        const filePath = fileInfo.file_path;
+        const token = readEnvFile(['TELEGRAM_BOT_TOKEN'])['TELEGRAM_BOT_TOKEN'] || '';
+        const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
+        const audioBuffer = await new Promise<Buffer>((resolve, reject) => {
+          https.get(url, (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => resolve(Buffer.concat(chunks)));
+            res.on('error', reject);
+          }).on('error', reject);
+        });
+        const { transcribeAudio } = await import('../transcription.js');
+        const transcript = await transcribeAudio(audioBuffer, `voice_${Date.now()}.ogg`);
+        storeNonText(ctx, transcript ? `[Voice: ${transcript}]` : '[Voice message]');
+      } catch (err) {
+        logger.error({ err }, 'Failed to transcribe voice');
+        storeNonText(ctx, '[Voice message]');
+      }
+    });
     this.bot.on('message:audio', (ctx) => storeNonText(ctx, '[Audio]'));
     this.bot.on('message:document', (ctx) => {
       const name = ctx.message.document?.file_name || 'file';
