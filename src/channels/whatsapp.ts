@@ -74,9 +74,7 @@ class WhatsAppChannel implements Channel {
           console.log('║   WhatsApp Pairing Code      ║');
           console.log(`║   ${code}   ║`);
           console.log('╚══════════════════════════════╝');
-          console.log(
-            'WhatsApp → Settings → Linked Devices → Link a Device\n',
-          );
+          console.log('WhatsApp → Settings → Linked Devices → Link a Device\n');
         } catch (err) {
           logger.error({ err }, 'Failed to get WhatsApp pairing code');
         }
@@ -101,36 +99,41 @@ class WhatsAppChannel implements Channel {
     this.sock.ev.process(async (events) => {
       if (events['messages.upsert']) {
         const { messages, type } = events['messages.upsert'];
-        logger.info({ type, count: messages.length }, 'WA messages.upsert received');
+        logger.info(
+          { type, count: messages.length },
+          'WA messages.upsert received',
+        );
         if (type !== 'notify' && type !== 'append') return;
-    
+
         for (const msg of messages) {
           if (msg.key.fromMe || !msg.message) continue;
-    
+
           const remoteJid = msg.key.remoteJid!;
           let chatJid = fromWaJid(remoteJid);
           if (remoteJid.endsWith('@lid') && this.authKeys) {
             const lidUser = remoteJid.split('@')[0];
-            const stored = await this.authKeys.get('lid-mapping', [`${lidUser}_reverse`]);
+            const stored = await this.authKeys.get('lid-mapping', [
+              `${lidUser}_reverse`,
+            ]);
             const pnUser = stored[`${lidUser}_reverse`];
             if (pnUser) chatJid = `${WA_PREFIX}${pnUser}@s.whatsapp.net`;
           }
           const participant = msg.key.participant || remoteJid;
           const senderId = fromWaJid(jidNormalizedUser(participant));
-    
+
           let text =
-          msg.message.conversation ||
-          msg.message.extendedTextMessage?.text ||
-          msg.message.imageMessage?.caption ||
-          msg.message.videoMessage?.caption ||
-          msg.message.documentMessage?.caption ||
-          (msg.message.imageMessage ? '[Image]' : '') ||
-          (msg.message.videoMessage ? '[Video]' : '') ||
-          (msg.message.documentMessage
-            ? `[Document: ${msg.message.documentMessage.fileName || 'fichier'}]`
-            : '') ||
-          '';
-    
+            msg.message.conversation ||
+            msg.message.extendedTextMessage?.text ||
+            msg.message.imageMessage?.caption ||
+            msg.message.videoMessage?.caption ||
+            msg.message.documentMessage?.caption ||
+            (msg.message.imageMessage ? '[Image]' : '') ||
+            (msg.message.videoMessage ? '[Video]' : '') ||
+            (msg.message.documentMessage
+              ? `[Document: ${msg.message.documentMessage.fileName || 'fichier'}]`
+              : '') ||
+            '';
+
           if (!text && msg.message.audioMessage?.ptt) {
             try {
               const buffer = await downloadMediaMessage(msg, 'buffer', {});
@@ -143,9 +146,9 @@ class WhatsAppChannel implements Channel {
               logger.error({ err }, 'Failed to transcribe voice message');
             }
           }
-    
+
           if (!text) continue;
-    
+
           this.onChatMetadata(
             chatJid,
             new Date(Number(msg.messageTimestamp) * 1000).toISOString(),
@@ -153,14 +156,16 @@ class WhatsAppChannel implements Channel {
             'whatsapp',
             isJidGroup(remoteJid),
           );
-    
+
           this.onMessage(chatJid, {
             id: msg.key.id || `wa-${Date.now()}`,
             chat_jid: chatJid,
             sender: senderId,
             sender_name: msg.pushName || senderId,
             content: text,
-            timestamp: new Date(Number(msg.messageTimestamp) * 1000).toISOString(),
+            timestamp: new Date(
+              Number(msg.messageTimestamp) * 1000,
+            ).toISOString(),
           });
         }
       }

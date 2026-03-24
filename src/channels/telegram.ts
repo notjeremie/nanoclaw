@@ -98,9 +98,15 @@ export async function sendPoolMessage(
     try {
       await poolApis[idx].setMyName(sender);
       await new Promise((r) => setTimeout(r, 2000));
-      logger.info({ sender, groupFolder, poolIndex: idx }, 'Assigned and renamed pool bot');
+      logger.info(
+        { sender, groupFolder, poolIndex: idx },
+        'Assigned and renamed pool bot',
+      );
     } catch (err) {
-      logger.warn({ sender, err }, 'Failed to rename pool bot (sending anyway)');
+      logger.warn(
+        { sender, err },
+        'Failed to rename pool bot (sending anyway)',
+      );
     }
   }
 
@@ -112,10 +118,17 @@ export async function sendPoolMessage(
       await sendTelegramMessage(api, numericId, text);
     } else {
       for (let i = 0; i < text.length; i += MAX_LENGTH) {
-        await sendTelegramMessage(api, numericId, text.slice(i, i + MAX_LENGTH));
+        await sendTelegramMessage(
+          api,
+          numericId,
+          text.slice(i, i + MAX_LENGTH),
+        );
       }
     }
-    logger.info({ chatId, sender, poolIndex: idx, length: text.length }, 'Pool message sent');
+    logger.info(
+      { chatId, sender, poolIndex: idx, length: text.length },
+      'Pool message sent',
+    );
   } catch (err) {
     logger.error({ chatId, sender, err }, 'Failed to send pool message');
   }
@@ -288,17 +301,25 @@ export class TelegramChannel implements Channel {
         const largest = photos[photos.length - 1];
         const fileInfo = await ctx.api.getFile(largest.file_id);
         const filePath = fileInfo.file_path;
-        const token = readEnvFile(['TELEGRAM_BOT_TOKEN'])['TELEGRAM_BOT_TOKEN'] || '';
+        const token =
+          readEnvFile(['TELEGRAM_BOT_TOKEN'])['TELEGRAM_BOT_TOKEN'] || '';
         const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
         const photoBuffer = await new Promise<Buffer>((resolve, reject) => {
-          https.get(url, (res) => {
-            const chunks: Buffer[] = [];
-            res.on('data', (c) => chunks.push(c));
-            res.on('end', () => resolve(Buffer.concat(chunks)));
-            res.on('error', reject);
-          }).on('error', reject);
+          https
+            .get(url, (res) => {
+              const chunks: Buffer[] = [];
+              res.on('data', (c) => chunks.push(c));
+              res.on('end', () => resolve(Buffer.concat(chunks)));
+              res.on('error', reject);
+            })
+            .on('error', reject);
         });
-        const photoDir = path.join(process.cwd(), 'groups', group.folder, 'photos');
+        const photoDir = path.join(
+          process.cwd(),
+          'groups',
+          group.folder,
+          'photos',
+        );
         fs.mkdirSync(photoDir, { recursive: true });
         const filename = `photo_${Date.now()}.jpg`;
         fs.writeFileSync(path.join(photoDir, filename), photoBuffer);
@@ -314,19 +335,28 @@ export class TelegramChannel implements Channel {
         const fileId = ctx.message.voice.file_id;
         const fileInfo = await ctx.api.getFile(fileId);
         const filePath = fileInfo.file_path;
-        const token = readEnvFile(['TELEGRAM_BOT_TOKEN'])['TELEGRAM_BOT_TOKEN'] || '';
+        const token =
+          readEnvFile(['TELEGRAM_BOT_TOKEN'])['TELEGRAM_BOT_TOKEN'] || '';
         const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
         const audioBuffer = await new Promise<Buffer>((resolve, reject) => {
-          https.get(url, (res) => {
-            const chunks: Buffer[] = [];
-            res.on('data', (c) => chunks.push(c));
-            res.on('end', () => resolve(Buffer.concat(chunks)));
-            res.on('error', reject);
-          }).on('error', reject);
+          https
+            .get(url, (res) => {
+              const chunks: Buffer[] = [];
+              res.on('data', (c) => chunks.push(c));
+              res.on('end', () => resolve(Buffer.concat(chunks)));
+              res.on('error', reject);
+            })
+            .on('error', reject);
         });
         const { transcribeAudio } = await import('../transcription.js');
-        const transcript = await transcribeAudio(audioBuffer, `voice_${Date.now()}.ogg`);
-        storeNonText(ctx, transcript ? `[Voice: ${transcript}]` : '[Voice message]');
+        const transcript = await transcribeAudio(
+          audioBuffer,
+          `voice_${Date.now()}.ogg`,
+        );
+        storeNonText(
+          ctx,
+          transcript ? `[Voice: ${transcript}]` : '[Voice message]',
+        );
       } catch (err) {
         logger.error({ err }, 'Failed to transcribe voice');
         storeNonText(ctx, '[Voice message]');
