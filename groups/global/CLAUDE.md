@@ -40,9 +40,12 @@ Files you create are saved in `/workspace/group/`. Use this for notes, research,
 
 ## Memory
 
+**Global memory file: `/workspace/global/memory.md`** — this is the single source of truth for all context about Jeremie, projects, technical setup, and active tasks. Always read it at the start of any non-trivial task. It is accessible from every group.
+
 The `conversations/` folder contains searchable history of past conversations. Use this to recall context from previous sessions.
 
 When you learn something important:
+- Update `/workspace/global/memory.md` directly
 - Create files for structured data (e.g., `customers.md`, `preferences.md`)
 - Split files larger than 500 lines into folders
 - Keep an index in your memory for the files you create
@@ -74,3 +77,56 @@ No `##` headings. No `[links](url)`. No `**double stars**`.
 ### Discord channels (folder starts with `discord_`)
 
 Standard Markdown works: `**bold**`, `*italic*`, `[links](url)`, `# headings`.
+
+---
+
+## Services partagés
+
+## Bring! — Liste de courses
+
+Liste principale : "Courses sa race" (c558a2e5-a749-4782-9d31-cea37fd86d05)
+Liste Shufersal : "Shufersal" (ca1558cd-9d98-42c9-a9ea-47b9f1fb148d)
+
+Étape 1 — Login pour obtenir le token :
+curl -s -X POST https://api.getbring.com/rest/v2/bringauth \
+  -H "X-BRING-API-KEY: cof4Nc6D8saplXjE3h3HXqHH8m7VU2i1Gs0g85Sp" \
+  -H "X-BRING-CLIENT: webApp" \
+  -d "email=$(printenv BRING_EMAIL)&password=$(printenv BRING_PASSWORD)"
+→ Récupérer le champ "access_token" dans la réponse
+
+Étape 2 — Ajouter un article :
+curl -s -X PUT "https://api.getbring.com/rest/v2/bringlists/{LIST_UUID}" \
+  -H "Authorization: Bearer {ACCESS_TOKEN}" \
+  --data-urlencode "purchase=NOM_ARTICLE" \
+  --data-urlencode "recently=" \
+  --data-urlencode "language=fr-FR"
+
+Étape 2 — Cocher/supprimer un article :
+curl -s -X PUT "https://api.getbring.com/rest/v2/bringlists/{LIST_UUID}" \
+  -H "Authorization: Bearer {ACCESS_TOKEN}" \
+  --data-urlencode "recently=NOM_ARTICLE" \
+  --data-urlencode "purchase=" \
+  --data-urlencode "language=fr-FR"
+
+Voir les articles : GET https://api.getbring.com/rest/v2/bringlists/{LIST_UUID}
+→ Les articles sont dans le champ "purchase[]"
+
+## Shufersal — Panier en ligne
+
+email=$(printenv SHUFERSAL_EMAIL)
+password=$(printenv SHUFERSAL_PASSWORD)
+Workflow : browser automation via agent-browser sur https://www.shufersal.co.il
+
+### Règles d'ajout au panier
+
+1. *Source unique* : lire uniquement la liste Bring! "Shufersal" (ca1558cd-9d98-42c9-a9ea-47b9f1fb148d)
+2. *Préférences produits* : consulter `/workspace/global/shufersal-preferences.md` (ou `/workspace/project/groups/global/shufersal-preferences.md` depuis le groupe main) pour chaque article
+3. *Produit avec préférence* : ajouter directement le produit préféré
+4. *Produit sans préférence* : proposer 3 options à l'utilisateur → attendre son choix → noter dans preferences.md → ajouter
+5. *Offres* : vérifier les promotions sur les produits de la liste et les signaler
+6. *Après ajout* : cocher l'article dans la liste Bring! "Shufersal"
+
+### Déclenchement
+
+L'ajout au panier se fait uniquement sur demande explicite ("mets la liste Shufersal dans le panier", "ajoute au panier", etc.)
+Ne jamais ajouter au panier automatiquement sans demande.

@@ -238,15 +238,28 @@ Notes:
 - The config file is on the host at `~/.config/nanoclaw/sender-allowlist.json`, not inside the container
 
 ### Removing a Group
-
-1. Read `/workspace/project/data/registered_groups.json`
-2. Remove the entry for that group
-3. Write the updated JSON back
-4. The group folder and its files remain (don't delete them)
+1. Query SQLite : `SELECT * FROM registered_groups WHERE key='{jid}';`
+2. Delete via : `DELETE FROM registered_groups WHERE key='{jid}';`
+3. The group folder and its files remain (don't delete them)
+4. Note: in-memory cache won't update until NanoClaw restarts
 
 ### Listing Groups
+Query SQLite : `SELECT key, name, folder FROM registered_groups;`
+Or read /workspace/ipc/available_groups.json for discovered groups.
 
-Read `/workspace/project/data/registered_groups.json` and format it nicely.
+---
+
+## Environment Variables
+
+The following credentials are available as environment variables inside the container. Use them when automating tasks for these services:
+
+| Variable | Purpose |
+|----------|---------|
+| `LINKEDIN_EMAIL` / `LINKEDIN_PASSWORD` | LinkedIn login |
+| `SHUFERSAL_EMAIL` / `SHUFERSAL_PASSWORD` | Shufersal account |
+| `BRING_EMAIL` / `BRING_PASSWORD` | Bring! shopping list |
+
+Access them via `$LINKEDIN_EMAIL` in bash or `process.env.LINKEDIN_EMAIL` in code.
 
 ---
 
