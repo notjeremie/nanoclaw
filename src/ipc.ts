@@ -3,7 +3,13 @@ import path from 'path';
 
 import { CronExpressionParser } from 'cron-parser';
 
-import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
+import {
+  DATA_DIR,
+  GROUPS_DIR,
+  IPC_POLL_INTERVAL,
+  SENDER_ALLOWLIST_PATH,
+  TIMEZONE,
+} from './config.js';
 import { sendPoolMessage } from './channels/telegram.js';
 import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
@@ -182,6 +188,11 @@ export async function processTaskIpc(
     trigger?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
+    // For update_allowlist
+    allow?: '*' | string[];
+    mode?: 'trigger' | 'drop';
+    // For update_people_profile
+    profile?: string | null;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -464,6 +475,90 @@ export async function processTaskIpc(
         );
       }
       break;
+
+    case 'update_allowlist': {
+      const isAcces = sourceGroup === 'telegram_nanoclaw-acces';
+      if (!isMain && !isAcces) {
+        logger.warn(
+          { sourceGroup },
+          'Unauthorized update_allowlist attempt blocked',
+        );
+        break;
+      }
+      if (data.jid && data.allow !== undefined && data.mode) {
+        try {
+          let cfg: any;
+          try {
+            cfg = JSON.parse(fs.readFileSync(SENDER_ALLOWLIST_PATH, 'utf-8'));
+          } catch {
+            cfg = {
+              default: { allow: '*', mode: 'trigger' },
+              chats: {},
+              logDenied: true,
+            };
+          }
+          if (!cfg.chats) cfg.chats = {};
+          cfg.chats[data.jid] = { allow: data.allow, mode: data.mode };
+          fs.mkdirSync(path.dirname(SENDER_ALLOWLIST_PATH), {
+            recursive: true,
+          });
+          fs.writeFileSync(SENDER_ALLOWLIST_PATH, JSON.stringify(cfg, null, 2));
+          logger.info(
+            { jid: data.jid, sourceGroup },
+            'Sender allowlist updated via IPC',
+          );
+        } catch (err) {
+          logger.error(
+            { err, jid: data.jid },
+            'Failed to update sender allowlist',
+          );
+        }
+      }
+      break;
+    }
+
+    case 'update_people_profile': {
+      const isAcces = sourceGroup === 'telegram_nanoclaw-acces';
+      if (!isMain && !isAcces) {
+        logger.warn(
+          { sourceGroup },
+          'Unauthorized update_people_profile attempt blocked',
+        );
+        break;
+      }
+      if (data.jid && data.profile !== undefined) {
+        try {
+          const profilesPath = path.join(
+            GROUPS_DIR,
+            'global',
+            'people-profiles.json',
+          );
+          let profiles: Record<string, string> = {};
+          try {
+            profiles = JSON.parse(fs.readFileSync(profilesPath, 'utf-8'));
+          } catch {
+            profiles = {};
+          }
+          if (data.profile === null) {
+            delete profiles[data.jid];
+          } else {
+            profiles[data.jid] = data.profile;
+          }
+          fs.mkdirSync(path.dirname(profilesPath), { recursive: true });
+          fs.writeFileSync(profilesPath, JSON.stringify(profiles, null, 2));
+          logger.info(
+            { jid: data.jid, sourceGroup },
+            'People profile updated via IPC',
+          );
+        } catch (err) {
+          logger.error(
+            { err, jid: data.jid },
+            'Failed to update people profile',
+          );
+        }
+      }
+      break;
+    }
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');
