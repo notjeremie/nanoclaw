@@ -363,9 +363,46 @@ export class TelegramChannel implements Channel {
       }
     });
     this.bot.on('message:audio', (ctx) => storeNonText(ctx, '[Audio]'));
-    this.bot.on('message:document', (ctx) => {
-      const name = ctx.message.document?.file_name || 'file';
-      storeNonText(ctx, `[Document: ${name}]`);
+    this.bot.on('message:document', async (ctx) => {
+      try {
+        const chatJid = `tg:${ctx.chat.id}`;
+        const group = this.opts.registeredGroups()[chatJid];
+        const doc = ctx.message.document;
+        const name = doc?.file_name || 'file';
+        if (!group || !doc) {
+          storeNonText(ctx, `[Document: ${name}]`);
+          return;
+        }
+        const fileInfo = await ctx.api.getFile(doc.file_id);
+        const filePath = fileInfo.file_path;
+        const token =
+          readEnvFile(['TELEGRAM_BOT_TOKEN'])['TELEGRAM_BOT_TOKEN'] || '';
+        const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
+        const fileBuffer = await new Promise<Buffer>((resolve, reject) => {
+          https
+            .get(url, (res) => {
+              const chunks: Buffer[] = [];
+              res.on('data', (c) => chunks.push(c));
+              res.on('end', () => resolve(Buffer.concat(chunks)));
+              res.on('error', reject);
+            })
+            .on('error', reject);
+        });
+        const attachDir = path.join(
+          process.cwd(),
+          'groups',
+          group.folder,
+          'attachments',
+        );
+        fs.mkdirSync(attachDir, { recursive: true });
+        const filename = `${Date.now()}_${name}`;
+        fs.writeFileSync(path.join(attachDir, filename), fileBuffer);
+        storeNonText(ctx, `[Document: /workspace/group/attachments/${filename}]`);
+      } catch (err) {
+        logger.error({ err }, 'Failed to save document');
+        const name = ctx.message.document?.file_name || 'file';
+        storeNonText(ctx, `[Document: ${name}]`);
+      }
     });
     this.bot.on('message:sticker', (ctx) => {
       const emoji = ctx.message.sticker?.emoji || '';
