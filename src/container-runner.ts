@@ -41,6 +41,7 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  senderJid?: string;
 }
 
 export interface ContainerOutput {
@@ -100,17 +101,17 @@ function buildVolumeMounts(
       containerPath: '/workspace/group',
       readonly: false,
     });
+  }
 
-    // Global memory directory (read-only for non-main)
-    // Only directory mounts are supported, not file mounts
-    const globalDir = path.join(GROUPS_DIR, 'global');
-    if (fs.existsSync(globalDir)) {
-      mounts.push({
-        hostPath: globalDir,
-        containerPath: '/workspace/global',
-        readonly: true,
-      });
-    }
+  // Global memory directory — writable for all groups so memory
+  // can be updated from any context (main or otherwise)
+  const globalDir = path.join(GROUPS_DIR, 'global');
+  if (fs.existsSync(globalDir)) {
+    mounts.push({
+      hostPath: globalDir,
+      containerPath: '/workspace/global',
+      readonly: false,
+    });
   }
 
   // Per-group Claude sessions directory (isolated from other groups)
@@ -212,6 +213,22 @@ function buildVolumeMounts(
   return mounts;
 }
 
+function loadSenderProfile(
+  senderJid?: string,
+  chatJid?: string,
+): string | null {
+  const jid = senderJid || chatJid;
+  if (!jid) return null;
+  const profilesPath = path.join(GROUPS_DIR, 'global', 'people-profiles.json');
+  if (!fs.existsSync(profilesPath)) return null;
+  try {
+    const profiles = JSON.parse(fs.readFileSync(profilesPath, 'utf-8'));
+    return profiles[jid] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
@@ -264,6 +281,25 @@ function buildContainerArgs(
       args.push(...readonlyMountArgs(mount.hostPath, mount.containerPath));
     } else {
       args.push('-v', `${mount.hostPath}:${mount.containerPath}`);
+    }
+  }
+
+  // Inject CONTAINER_* env vars from .env (stripped of prefix).
+  // Only vars prefixed with CONTAINER_ are passed — everything else
+  // (API keys, OAuth tokens, passwords) stays on the host.
+  const envPath = path.join(process.cwd(), '.env');
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (
+        trimmed &&
+        !trimmed.startsWith('#') &&
+        trimmed.startsWith('CONTAINER_')
+      ) {
+        // Strip the CONTAINER_ prefix: CONTAINER_FOO=bar → FOO=bar
+        args.push('-e', trimmed.slice('CONTAINER_'.length));
+      }
     }
   }
 
@@ -326,7 +362,14 @@ export async function runContainerAgent(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    container.stdin.write(JSON.stringify(input));
+    const senderProfile = loadSenderProfile(input.senderJid, input.chatJid);
+    const enrichedInput = senderProfile
+      ? {
+          ...input,
+          prompt: `<system-reminder>\nSender profile:\n${senderProfile}\n</system-reminder>\n\n${input.prompt}`,
+        }
+      : input;
+    container.stdin.write(JSON.stringify(enrichedInput));
     container.stdin.end();
 
     // Streaming output: parse OUTPUT_START/END marker pairs as they arrive
