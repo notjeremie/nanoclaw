@@ -15,6 +15,7 @@ import { readEnvFile } from '../env.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import { Channel } from '../types.js';
 import { transcribeAudio } from '../transcription.js';
+import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 
 const WA_PREFIX = 'wa:';
 const AUTH_DIR = path.join(DATA_DIR, 'whatsapp-auth');
@@ -133,6 +134,40 @@ class WhatsAppChannel implements Channel {
               ? `[Document: ${msg.message.documentMessage.fileName || 'fichier'}]`
               : '') ||
             '';
+
+          // Prepend trigger if bot is @mentioned
+          const mentionedJids: string[] =
+            msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
+          const botPhoneJid = `${this.phoneNumber}@s.whatsapp.net`;
+
+          let isBotMentioned = mentionedJids.some(
+            (jid) => jidNormalizedUser(jid) === jidNormalizedUser(botPhoneJid),
+          );
+
+          // WhatsApp groups use LID format for mentions — resolve via auth mapping
+          if (!isBotMentioned && this.authKeys) {
+            for (const jid of mentionedJids) {
+              if (jid.endsWith('@lid')) {
+                const lidUser = jid.split('@')[0];
+                const stored = await this.authKeys.get('lid-mapping', [
+                  `${lidUser}_reverse`,
+                ]);
+                const pnUser = stored[`${lidUser}_reverse`];
+                if (
+                  pnUser &&
+                  jidNormalizedUser(`${pnUser}@s.whatsapp.net`) ===
+                    jidNormalizedUser(botPhoneJid)
+                ) {
+                  isBotMentioned = true;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (isBotMentioned && !TRIGGER_PATTERN.test(text.trim())) {
+            text = `@${ASSISTANT_NAME} ${text}`;
+          }
 
           if (!text && msg.message.audioMessage?.ptt) {
             try {
