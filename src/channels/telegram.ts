@@ -397,7 +397,10 @@ export class TelegramChannel implements Channel {
         fs.mkdirSync(attachDir, { recursive: true });
         const filename = `${Date.now()}_${name}`;
         fs.writeFileSync(path.join(attachDir, filename), fileBuffer);
-        storeNonText(ctx, `[Document: /workspace/group/attachments/${filename}]`);
+        storeNonText(
+          ctx,
+          `[Document: /workspace/group/attachments/${filename}]`,
+        );
       } catch (err) {
         logger.error({ err }, 'Failed to save document');
         const name = ctx.message.document?.file_name || 'file';
