@@ -11,9 +11,9 @@ import path from 'path';
 
 import Database from 'better-sqlite3';
 
-import { STORE_DIR } from '../src/config.js';
+import { DATA_DIR } from '../src/config.js';
 import { readEnvFile } from '../src/env.js';
-import { logger } from '../src/logger.js';
+import { log } from '../src/log.js';
 import {
   getPlatform,
   getServiceManager,
@@ -27,7 +27,7 @@ export async function run(_args: string[]): Promise<void> {
   const platform = getPlatform();
   const homeDir = os.homedir();
 
-  logger.info('Starting verification');
+  log.info('Starting verification');
 
   // 1. Check service status
   let service = 'not_found';
@@ -80,7 +80,7 @@ export async function run(_args: string[]): Promise<void> {
       }
     }
   }
-  logger.info({ service }, 'Service status');
+  log.info('Service status', { service });
 
   // 2. Check container runtime
   let containerRuntime = 'none';
@@ -112,46 +112,61 @@ export async function run(_args: string[]): Promise<void> {
     'SLACK_BOT_TOKEN',
     'SLACK_APP_TOKEN',
     'DISCORD_BOT_TOKEN',
+    'GITHUB_TOKEN',
+    'LINEAR_API_KEY',
+    'GCHAT_CREDENTIALS',
+    'TEAMS_APP_ID',
+    'TEAMS_APP_PASSWORD',
+    'WEBEX_BOT_TOKEN',
+    'MATRIX_ACCESS_TOKEN',
+    'RESEND_API_KEY',
+    'WHATSAPP_ACCESS_TOKEN',
+    'IMESSAGE_ENABLED',
   ]);
 
+  const has = (key: string) => !!(process.env[key] || envVars[key]);
   const channelAuth: Record<string, string> = {};
 
-  // WhatsApp: check for auth credentials on disk
+  // WhatsApp Baileys: check for auth credentials on disk
   const authDir = path.join(projectRoot, 'store', 'auth');
   if (fs.existsSync(authDir) && fs.readdirSync(authDir).length > 0) {
     channelAuth.whatsapp = 'authenticated';
   }
 
-  // Token-based channels: check .env
-  if (process.env.TELEGRAM_BOT_TOKEN || envVars.TELEGRAM_BOT_TOKEN) {
-    channelAuth.telegram = 'configured';
-  }
-  if (
-    (process.env.SLACK_BOT_TOKEN || envVars.SLACK_BOT_TOKEN) &&
-    (process.env.SLACK_APP_TOKEN || envVars.SLACK_APP_TOKEN)
-  ) {
-    channelAuth.slack = 'configured';
-  }
-  if (process.env.DISCORD_BOT_TOKEN || envVars.DISCORD_BOT_TOKEN) {
-    channelAuth.discord = 'configured';
-  }
+  // Token-based channels
+  if (has('DISCORD_BOT_TOKEN')) channelAuth.discord = 'configured';
+  if (has('TELEGRAM_BOT_TOKEN')) channelAuth.telegram = 'configured';
+  if (has('SLACK_BOT_TOKEN') && has('SLACK_APP_TOKEN')) channelAuth.slack = 'configured';
+  if (has('GITHUB_TOKEN')) channelAuth.github = 'configured';
+  if (has('LINEAR_API_KEY')) channelAuth.linear = 'configured';
+  if (has('GCHAT_CREDENTIALS')) channelAuth.gchat = 'configured';
+  if (has('TEAMS_APP_ID') && has('TEAMS_APP_PASSWORD')) channelAuth.teams = 'configured';
+  if (has('WEBEX_BOT_TOKEN')) channelAuth.webex = 'configured';
+  if (has('MATRIX_ACCESS_TOKEN')) channelAuth.matrix = 'configured';
+  if (has('RESEND_API_KEY')) channelAuth.resend = 'configured';
+  if (has('WHATSAPP_ACCESS_TOKEN')) channelAuth['whatsapp-cloud'] = 'configured';
+  if (has('IMESSAGE_ENABLED')) channelAuth.imessage = 'configured';
 
   const configuredChannels = Object.keys(channelAuth);
   const anyChannelConfigured = configuredChannels.length > 0;
 
-  // 5. Check registered groups (using better-sqlite3, not sqlite3 CLI)
+  // 5. Check registered groups in v2 central DB (agent_groups + messaging_group_agents)
   let registeredGroups = 0;
-  const dbPath = path.join(STORE_DIR, 'messages.db');
+  const dbPath = path.join(DATA_DIR, 'v2.db');
   if (fs.existsSync(dbPath)) {
     try {
       const db = new Database(dbPath, { readonly: true });
+      // Count agent groups that have at least one messaging group wired
       const row = db
-        .prepare('SELECT COUNT(*) as count FROM registered_groups')
+        .prepare(
+          `SELECT COUNT(DISTINCT ag.id) as count FROM agent_groups ag
+           JOIN messaging_group_agents mga ON mga.agent_group_id = ag.id`,
+        )
         .get() as { count: number };
       registeredGroups = row.count;
       db.close();
     } catch {
-      // Table might not exist
+      // Table might not exist (DB not migrated yet)
     }
   }
 
@@ -174,7 +189,7 @@ export async function run(_args: string[]): Promise<void> {
       ? 'success'
       : 'failed';
 
-  logger.info({ status, channelAuth }, 'Verification complete');
+  log.info('Verification complete', { status, channelAuth });
 
   emitStatus('VERIFY', {
     SERVICE: service,

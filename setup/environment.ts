@@ -8,14 +8,14 @@ import path from 'path';
 import Database from 'better-sqlite3';
 
 import { STORE_DIR } from '../src/config.js';
-import { logger } from '../src/logger.js';
+import { log } from '../src/log.js';
 import { commandExists, getPlatform, isHeadless, isWSL } from './platform.js';
 import { emitStatus } from './status.js';
 
 export async function run(_args: string[]): Promise<void> {
   const projectRoot = process.cwd();
 
-  logger.info('Starting environment check');
+  log.info('Starting environment check');
 
   const platform = getPlatform();
   const wsl = isWSL();
@@ -66,7 +66,15 @@ export async function run(_args: string[]): Promise<void> {
     }
   }
 
-  logger.info(
+  // Check for existing OpenClaw installation
+  const homedir = (await import('os')).homedir();
+  const openClawPath =
+    fs.existsSync(path.join(homedir, '.openclaw')) ? path.join(homedir, '.openclaw') :
+    fs.existsSync(path.join(homedir, '.clawdbot')) ? path.join(homedir, '.clawdbot') :
+    null;
+
+  log.info(
+    'Environment check complete',
     {
       platform,
       wsl,
@@ -75,8 +83,8 @@ export async function run(_args: string[]): Promise<void> {
       hasEnv,
       hasAuth,
       hasRegisteredGroups,
+      openClawPath,
     },
-    'Environment check complete',
   );
 
   emitStatus('CHECK_ENVIRONMENT', {
@@ -88,6 +96,7 @@ export async function run(_args: string[]): Promise<void> {
     HAS_ENV: hasEnv,
     HAS_AUTH: hasAuth,
     HAS_REGISTERED_GROUPS: hasRegisteredGroups,
+    OPENCLAW_PATH: openClawPath ?? 'none',
     STATUS: 'success',
     LOG: 'logs/setup.log',
   });

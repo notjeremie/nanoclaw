@@ -5,7 +5,7 @@
 import { execSync } from 'child_process';
 import path from 'path';
 
-import { logger } from '../src/logger.js';
+import { log } from '../src/log.js';
 import { commandExists } from './platform.js';
 import { emitStatus } from './status.js';
 
@@ -99,33 +99,49 @@ export async function run(args: string[]): Promise<void> {
     runtime === 'apple-container' ? 'container build' : 'docker build';
   const runCmd = runtime === 'apple-container' ? 'container' : 'docker';
 
+  // Build-args from .env. Only INSTALL_CJK_FONTS is passed through today.
+  // Keeps /setup and ./container/build.sh in sync — both read the same source.
+  const buildArgs: string[] = [];
+  try {
+    const fs = await import('fs');
+    const envPath = path.join(projectRoot, '.env');
+    if (fs.existsSync(envPath)) {
+      const match = fs.readFileSync(envPath, 'utf-8').match(/^INSTALL_CJK_FONTS=(.+)$/m);
+      const val = match?.[1].trim().replace(/^["']|["']$/g, '').toLowerCase();
+      if (val === 'true') buildArgs.push('--build-arg INSTALL_CJK_FONTS=true');
+    }
+  } catch {
+    // .env is optional; absence is normal on a fresh checkout
+  }
+
   // Build
   let buildOk = false;
-  logger.info({ runtime }, 'Building container');
+  log.info('Building container', { runtime, buildArgs });
   try {
-    execSync(`${buildCmd} -t ${image} .`, {
+    const argsStr = buildArgs.length > 0 ? ' ' + buildArgs.join(' ') : '';
+    execSync(`${buildCmd}${argsStr} -t ${image} .`, {
       cwd: path.join(projectRoot, 'container'),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     buildOk = true;
-    logger.info('Container build succeeded');
+    log.info('Container build succeeded');
   } catch (err) {
-    logger.error({ err }, 'Container build failed');
+    log.error('Container build failed', { err });
   }
 
   // Test
   let testOk = false;
   if (buildOk) {
-    logger.info('Testing container');
+    log.info('Testing container');
     try {
       const output = execSync(
         `echo '{}' | ${runCmd} run -i --rm --entrypoint /bin/echo ${image} "Container OK"`,
         { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
       );
       testOk = output.includes('Container OK');
-      logger.info({ testOk }, 'Container test result');
+      log.info('Container test result', { testOk });
     } catch {
-      logger.error('Container test failed');
+      log.error('Container test failed');
     }
   }
 
