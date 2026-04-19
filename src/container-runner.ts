@@ -15,6 +15,7 @@ import {
   GROUPS_DIR,
   IDLE_TIMEOUT,
   TIMEZONE,
+  VAULT_PATH,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
@@ -114,6 +115,15 @@ function buildVolumeMounts(
     });
   }
 
+  // Obsidian vault — primary memory source, mounted for all groups
+  if (VAULT_PATH && fs.existsSync(VAULT_PATH)) {
+    mounts.push({
+      hostPath: VAULT_PATH,
+      containerPath: '/workspace/vault',
+      readonly: false,
+    });
+  }
+
   // Per-group Claude sessions directory (isolated from other groups)
   // Each group gets their own .claude/ to prevent cross-group session access
   const groupSessionsDir = path.join(
@@ -139,6 +149,7 @@ function buildVolumeMounts(
             // Enable Claude's memory feature (persists user preferences between sessions)
             // https://code.claude.com/docs/en/memory#manage-auto-memory
             CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+            CLAUDE_MODEL: 'claude-sonnet-4-6',
           },
         },
         null,

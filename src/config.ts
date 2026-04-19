@@ -10,6 +10,7 @@ const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
   'TELEGRAM_BOT_POOL',
+  'VAULT_PATH',
 ]);
 
 export const ASSISTANT_NAME =
@@ -75,6 +76,9 @@ export const TRIGGER_PATTERN = new RegExp(
 // Uses system timezone by default
 export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+// Optional Obsidian vault path — mounted read-write for all groups at /workspace/vault
+export const VAULT_PATH = process.env.VAULT_PATH || envConfig.VAULT_PATH || '';
 
 export const TELEGRAM_BOT_POOL = (
   process.env.TELEGRAM_BOT_POOL ||

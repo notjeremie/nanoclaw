@@ -111,10 +111,11 @@ export async function run(args: string[]): Promise<void> {
 
   logger.info('Wrote registration to SQLite');
 
-  // Create group folders
-  fs.mkdirSync(path.join(projectRoot, 'groups', parsed.folder, 'logs'), {
-    recursive: true,
-  });
+  // Create group folders with standard structure
+  const groupDir = path.join(projectRoot, 'groups', parsed.folder);
+  for (const sub of ['logs', 'conversations', 'scripts', 'config', 'reports', 'photos', 'attachments']) {
+    fs.mkdirSync(path.join(groupDir, sub), { recursive: true });
+  }
 
   // Update assistant name in CLAUDE.md files if different from default
   let nameUpdated = false;

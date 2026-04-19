@@ -16,6 +16,7 @@ import { registerChannel, ChannelOpts } from './registry.js';
 import { Channel } from '../types.js';
 import { transcribeAudio } from '../transcription.js';
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
+import fs from 'fs';
 
 const WA_PREFIX = 'wa:';
 const AUTH_DIR = path.join(DATA_DIR, 'whatsapp-auth');
@@ -37,11 +38,13 @@ class WhatsAppChannel implements Channel {
   private phoneNumber: string;
   private pairingCodeRequested = false;
   private authKeys: any = null;
+  private registeredGroups: ChannelOpts['registeredGroups'];
 
   constructor(opts: ChannelOpts, phoneNumber: string) {
     this.onMessage = opts.onMessage;
     this.onChatMetadata = opts.onChatMetadata;
     this.phoneNumber = phoneNumber;
+    this.registeredGroups = opts.registeredGroups;
   }
 
   async connect(): Promise<void> {
@@ -167,6 +170,31 @@ class WhatsAppChannel implements Channel {
 
           if (isBotMentioned && !TRIGGER_PATTERN.test(text.trim())) {
             text = `@${ASSISTANT_NAME} ${text}`;
+          }
+
+          if (msg.message.imageMessage) {
+            try {
+              const buffer = await downloadMediaMessage(msg, 'buffer', {});
+              const group = this.registeredGroups()[chatJid];
+              if (group) {
+                const photoDir = path.join(
+                  process.cwd(),
+                  'groups',
+                  group.folder,
+                  'photos',
+                );
+                fs.mkdirSync(photoDir, { recursive: true });
+                const filename = `photo_${Date.now()}.jpg`;
+                fs.writeFileSync(
+                  path.join(photoDir, filename),
+                  buffer as Buffer,
+                );
+                const caption = msg.message.imageMessage.caption || '';
+                text = `[Photo: /workspace/group/photos/${filename}]${caption ? ' ' + caption : ''}`;
+              }
+            } catch (err) {
+              logger.error({ err }, 'Failed to save WA photo');
+            }
           }
 
           if (!text && msg.message.audioMessage?.ptt) {
