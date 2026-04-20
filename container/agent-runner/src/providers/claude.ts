@@ -209,9 +209,15 @@ export class ClaudeProvider implements AgentProvider {
 
     const instructions = input.systemContext?.instructions;
 
+    // Use the globally-installed native binary instead of the SDK's embedded
+    // cli.js — the embedded script hangs under Bun when run through the OneCLI
+    // HTTPS proxy (auth exchange never completes).
+    const nativeBin = process.env.CLAUDE_NATIVE_BIN || '/pnpm/claude';
+
     const sdkResult = sdkQuery({
       prompt: stream,
       options: {
+        pathToClaudeCodeExecutable: nativeBin,
         cwd: input.cwd,
         additionalDirectories: this.additionalDirectories,
         resume: input.continuation,

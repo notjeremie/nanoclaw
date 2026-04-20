@@ -269,6 +269,9 @@ async function buildContainerArgs(
   args.push('-e', `NANOCLAW_AGENT_GROUP_ID=${agentGroup.id}`);
   args.push('-e', `NANOCLAW_AGENT_GROUP_NAME=${agentGroup.name}`);
   args.push('-e', 'CLAUDE_MODEL=claude-sonnet-4-6');
+  // Point SDK at the globally-installed native binary — the embedded cli.js
+  // hangs under Bun when run through the OneCLI HTTPS proxy.
+  args.push('-e', 'CLAUDE_NATIVE_BIN=/pnpm/global/5/.pnpm/@anthropic-ai+claude-code@2.1.114/node_modules/@anthropic-ai/claude-code/bin/claude.exe');
 
   // Provider-contributed env vars (e.g. XDG_DATA_HOME, OPENCODE_*, NO_PROXY).
   if (providerContribution.env) {
@@ -306,22 +309,21 @@ async function buildContainerArgs(
     args.push('-e', `NANOCLAW_ADMIN_USER_IDS=${Array.from(adminUserIds).join(',')}`);
   }
 
-  // OneCLI gateway — injects HTTPS_PROXY + certs so container API calls
-  // are routed through the agent vault for credential injection.
-  // Must ensureAgent first for non-admin groups, otherwise applyContainerConfig
-  // rejects the unknown agent identifier and returns false.
-  try {
-    if (agentIdentifier) {
-      await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+  // Credential injection: read API key from .env and pass directly.
+  // OneCLI HTTPS_PROXY breaks the Claude Code native binary's auth flow
+  // (the proxy intercepts but the binary hangs during token exchange).
+  // TODO: revisit when OneCLI proxy + claude.exe compatibility is resolved.
+  const envPath = path.join(process.cwd(), '.env');
+  if (fs.existsSync(envPath)) {
+    const envLines = fs.readFileSync(envPath, 'utf8').split('\n');
+    for (const line of envLines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('CLAUDE_CODE_OAUTH_TOKEN=')) {
+        const val = trimmed.slice('CLAUDE_CODE_OAUTH_TOKEN='.length).replace(/^["']|["']$/g, '');
+        args.push('-e', `ANTHROPIC_API_KEY=${val}`);
+        break;
+      }
     }
-    const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
-    if (onecliApplied) {
-      log.info('OneCLI gateway applied', { containerName });
-    } else {
-      log.warn('OneCLI gateway not applied — container will have no credentials', { containerName });
-    }
-  } catch (err) {
-    log.warn('OneCLI gateway error — container will have no credentials', { containerName, err });
   }
 
   // Host gateway

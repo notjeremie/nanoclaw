@@ -81,7 +81,9 @@ RUN --mount=type=cache,target=/root/.cache/pnpm \
         "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
         "agent-browser@${AGENT_BROWSER_VERSION}" \
         "vercel@${VERCEL_VERSION}" && \
-    chmod -R a+rX /pnpm/global
+    chmod -R a+rX /pnpm/global && \
+    ln -sf /pnpm/global/5/.pnpm/@anthropic-ai+claude-code@*/node_modules/@anthropic-ai/claude-code/bin/claude.exe /usr/local/bin/claude-code && \
+    echo "Global CLI install done"
 
 # ---- agent-runner ------------------------------------------------------------
 WORKDIR /app
@@ -91,7 +93,13 @@ WORKDIR /app
 COPY agent-runner/package.json agent-runner/bun.lock ./
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
-    bun install --frozen-lockfile
+    bun install --frozen-lockfile && \
+    # The SDK tries the musl binary first, but the container uses glibc.
+    # Replace the musl binary with the glibc one so the SDK finds a working binary.
+    cp /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude \
+       /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/claude && \
+    chmod 755 /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/claude && \
+    chmod 755 /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude
 
 # Source. Bun runs TS directly — no tsc build step. The host remounts this
 # path at runtime via `src/container-runner.ts` so source edits on the host
