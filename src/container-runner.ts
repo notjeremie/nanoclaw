@@ -404,7 +404,9 @@ async function buildContainerArgs(
   const imageTag = containerConfig.imageTag || CONTAINER_IMAGE;
   args.push(imageTag);
 
-  args.push('-c', 'exec bun run /app/src/index.ts');
+  // v1 scripts reference /workspace/group/... — symlink to v2's /workspace/agent/
+  // so migrated tasks don't need their prompts rewritten.
+  args.push('-c', 'ln -sf /workspace/agent /workspace/group 2>/dev/null; exec bun run /app/src/index.ts');
 
   return args;
 }
