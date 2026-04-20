@@ -17,6 +17,7 @@ import {
   type Message as ChatMessage,
 } from 'chat';
 import { log } from '../log.js';
+import { transcribeAudio } from '../transcription.js';
 import { SqliteStateAdapter } from '../state-sqlite.js';
 import { registerWebhookAdapter } from '../webhook-server.js';
 import { getAskQuestionRender } from '../db/sessions.js';
@@ -99,12 +100,28 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
           width: (att as unknown as Record<string, unknown>).width,
           height: (att as unknown as Record<string, unknown>).height,
         };
+        let buffer: Buffer | undefined;
         if (att.fetchData) {
           try {
-            const buffer = await att.fetchData();
+            buffer = await att.fetchData();
             entry.data = buffer.toString('base64');
           } catch (err) {
             log.warn('Failed to download attachment', { type: att.type, err });
+          }
+        }
+        // Transcribe audio attachments (voice notes, audio files) so the
+        // agent sees text. The base64 data stays in place for other uses.
+        if (buffer && (att.type === 'audio' || (att.mimeType && att.mimeType.startsWith('audio/')))) {
+          try {
+            const transcript = await transcribeAudio(buffer, att.name || `audio-${Date.now()}.ogg`);
+            if (transcript) {
+              entry.transcript = transcript;
+              log.info('Transcribed chat-sdk audio', { chars: transcript.length, adapter: config.adapter });
+              const prev = typeof serialized.text === 'string' ? serialized.text : '';
+              serialized.text = prev ? `${prev}\n[Voice: ${transcript}]` : `[Voice: ${transcript}]`;
+            }
+          } catch (err) {
+            log.warn('Voice transcription failed', { err });
           }
         }
         enriched.push(entry);

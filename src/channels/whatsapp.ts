@@ -30,6 +30,7 @@ import type { GroupMetadata, WAMessageKey, WAMessage, WASocket } from '@whiskeys
 import { ASSISTANT_HAS_OWN_NUMBER, ASSISTANT_NAME, DATA_DIR } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
+import { transcribeAudio } from '../transcription.js';
 import { registerChannelAdapter } from './channel-registry.js';
 import { normalizeOptions, type NormalizedOption } from './ask-question.js';
 import type {
@@ -536,6 +537,24 @@ registerChannelAdapter('whatsapp', {
 
             // Download media attachments (images, video, audio, documents)
             const attachments = await downloadInboundMedia(msg, normalized);
+
+            // Transcribe voice notes (ptt = push-to-talk) so the agent sees text.
+            if (normalized.audioMessage?.ptt) {
+              const voiceAttach = attachments.find((a) => a.type === 'audio');
+              if (voiceAttach) {
+                try {
+                  const fullPath = path.join(DATA_DIR, voiceAttach.localPath);
+                  const buffer = fs.readFileSync(fullPath);
+                  const transcript = await transcribeAudio(buffer, voiceAttach.name);
+                  if (transcript) {
+                    content = content ? `${content}\n[Voice: ${transcript}]` : `[Voice: ${transcript}]`;
+                    log.info('Transcribed voice message', { chars: transcript.length });
+                  }
+                } catch (err) {
+                  log.warn('Voice transcription failed', { err });
+                }
+              }
+            }
 
             // Skip empty protocol messages (no text and no attachments)
             if (!content && attachments.length === 0) continue;

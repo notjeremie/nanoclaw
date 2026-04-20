@@ -230,6 +230,13 @@ function buildMounts(
     mounts.push({ hostPath: VAULT_PATH, containerPath: '/workspace/vault', readonly: false });
   }
 
+  // Shared attachments directory — WhatsApp (and future native adapters)
+  // download media here. Mounted read-only so the agent can read but not
+  // modify inbound media.
+  const attachmentsDir = path.join(DATA_DIR, 'attachments');
+  fs.mkdirSync(attachmentsDir, { recursive: true });
+  mounts.push({ hostPath: attachmentsDir, containerPath: '/workspace/attachments', readonly: true });
+
   // Additional mounts from container config (groups/<folder>/container.json)
   const containerConfig = readContainerConfig(agentGroup.folder);
   if (containerConfig.additionalMounts && containerConfig.additionalMounts.length > 0) {
