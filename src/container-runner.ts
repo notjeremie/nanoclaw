@@ -271,7 +271,10 @@ async function buildContainerArgs(
   args.push('-e', 'CLAUDE_MODEL=claude-sonnet-4-6');
   // Point SDK at the globally-installed native binary — the embedded cli.js
   // hangs under Bun when run through the OneCLI HTTPS proxy.
-  args.push('-e', 'CLAUDE_NATIVE_BIN=/pnpm/global/5/.pnpm/@anthropic-ai+claude-code@2.1.114/node_modules/@anthropic-ai/claude-code/bin/claude.exe');
+  args.push(
+    '-e',
+    'CLAUDE_NATIVE_BIN=/pnpm/global/5/.pnpm/@anthropic-ai+claude-code@2.1.114/node_modules/@anthropic-ai/claude-code/bin/claude.exe',
+  );
 
   // Provider-contributed env vars (e.g. XDG_DATA_HOME, OPENCODE_*, NO_PROXY).
   if (providerContribution.env) {
@@ -309,21 +312,39 @@ async function buildContainerArgs(
     args.push('-e', `NANOCLAW_ADMIN_USER_IDS=${Array.from(adminUserIds).join(',')}`);
   }
 
-  // Credential injection: read API key from .env and pass directly.
-  // OneCLI HTTPS_PROXY breaks the Claude Code native binary's auth flow
-  // (the proxy intercepts but the binary hangs during token exchange).
-  // TODO: revisit when OneCLI proxy + claude.exe compatibility is resolved.
-  const envPath = path.join(process.cwd(), '.env');
-  if (fs.existsSync(envPath)) {
-    const envLines = fs.readFileSync(envPath, 'utf8').split('\n');
-    for (const line of envLines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('CLAUDE_CODE_OAUTH_TOKEN=')) {
-        const val = trimmed.slice('CLAUDE_CODE_OAUTH_TOKEN='.length).replace(/^["']|["']$/g, '');
-        args.push('-e', `ANTHROPIC_API_KEY=${val}`);
-        break;
+  // Credential injection: read OAuth token from macOS Keychain (auto-refreshed)
+  // or fall back to .env. OneCLI HTTPS_PROXY breaks the Claude Code native
+  // binary's auth flow, so we inject ANTHROPIC_API_KEY directly.
+  let apiKey: string | undefined;
+  try {
+    const keychainOut = execSync(
+      'security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null',
+      { encoding: 'utf8', timeout: 5000 },
+    ).trim();
+    if (keychainOut) {
+      const creds = JSON.parse(keychainOut);
+      apiKey = creds?.claudeAiOauth?.accessToken;
+    }
+  } catch {
+    // Not macOS or no keychain entry — fall back to .env
+  }
+  if (!apiKey) {
+    const envPath = path.join(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      const envLines = fs.readFileSync(envPath, 'utf8').split('\n');
+      for (const line of envLines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('CLAUDE_CODE_OAUTH_TOKEN=')) {
+          apiKey = trimmed.slice('CLAUDE_CODE_OAUTH_TOKEN='.length).replace(/^["']|["']$/g, '');
+          break;
+        }
       }
     }
+  }
+  if (apiKey) {
+    args.push('-e', `ANTHROPIC_API_KEY=${apiKey}`);
+  } else {
+    log.warn('No API key found — container will have no credentials', { containerName });
   }
 
   // Host gateway

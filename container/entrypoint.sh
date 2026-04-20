@@ -11,6 +11,19 @@
 
 set -e
 
+# Fix musl/glibc binary mismatch in Bun's install cache.
+# The SDK ships both musl and glibc binaries but tries musl first.
+# On glibc containers (node:22-slim), the musl binary silently fails.
+# This copies the glibc binary over the musl path wherever Bun cached it.
+for musl_bin in /home/node/.bun/install/cache/@anthropic-ai/claude-agent-sdk-linux-arm64-musl@*/claude; do
+  if [ -f "$musl_bin" ]; then
+    glibc_bin=$(echo "$musl_bin" | sed 's/-musl//')
+    if [ -f "$glibc_bin" ]; then
+      cp "$glibc_bin" "$musl_bin" 2>/dev/null && chmod 755 "$musl_bin" 2>/dev/null || true
+    fi
+  fi
+done
+
 cat > /tmp/input.json
 
 exec bun run /app/src/index.ts < /tmp/input.json

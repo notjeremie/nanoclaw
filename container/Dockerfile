@@ -95,11 +95,14 @@ COPY agent-runner/package.json agent-runner/bun.lock ./
 RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun install --frozen-lockfile && \
     # The SDK tries the musl binary first, but the container uses glibc.
-    # Replace the musl binary with the glibc one so the SDK finds a working binary.
+    # Replace the musl binary with the glibc one everywhere the SDK might resolve:
+    # 1. /app/node_modules (direct install)
+    # 2. Bun's install cache (used when /app/src is mounted at runtime)
     cp /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude \
        /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/claude && \
     chmod 755 /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/claude && \
-    chmod 755 /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude
+    chmod 755 /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude && \
+    echo "SDK binary fix applied to node_modules"
 
 # Source. Bun runs TS directly — no tsc build step. The host remounts this
 # path at runtime via `src/container-runner.ts` so source edits on the host
