@@ -317,10 +317,10 @@ async function buildContainerArgs(
   // binary's auth flow, so we inject ANTHROPIC_API_KEY directly.
   let apiKey: string | undefined;
   try {
-    const keychainOut = execSync(
-      'security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null',
-      { encoding: 'utf8', timeout: 5000 },
-    ).trim();
+    const keychainOut = execSync('security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null', {
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
     if (keychainOut) {
       const creds = JSON.parse(keychainOut);
       apiKey = creds?.claudeAiOauth?.accessToken;
