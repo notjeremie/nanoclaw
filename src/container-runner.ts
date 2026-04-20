@@ -354,6 +354,20 @@ async function buildContainerArgs(
     log.warn('No API key found — container will have no credentials', { containerName });
   }
 
+  // Pass CONTAINER_*-prefixed env vars through to the container, stripped of
+  // the prefix. Lets scripts access third-party credentials (Google, Plex,
+  // Notion, etc.) without exposing them to Claude Code's prompt context.
+  const envPath2 = path.join(process.cwd(), '.env');
+  if (fs.existsSync(envPath2)) {
+    const envLines = fs.readFileSync(envPath2, 'utf8').split('\n');
+    for (const line of envLines) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#') && trimmed.startsWith('CONTAINER_')) {
+        args.push('-e', trimmed.slice('CONTAINER_'.length));
+      }
+    }
+  }
+
   // Host gateway
   args.push(...hostGatewayArgs());
 
