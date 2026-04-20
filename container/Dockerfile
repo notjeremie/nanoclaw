@@ -116,7 +116,10 @@ RUN chmod +x /app/entrypoint.sh
 # ---- Workspace + permissions -------------------------------------------------
 RUN mkdir -p /workspace/group /workspace/global /workspace/extra && \
     chown -R node:node /workspace && \
-    chmod 755 /home/node
+    chmod 755 /home/node && \
+    # Make /home/node world-writable so containers running as any UID
+    # (including the host user's UID) can write .claude.json there.
+    chmod 777 /home/node
 
 USER node
 WORKDIR /workspace/group
