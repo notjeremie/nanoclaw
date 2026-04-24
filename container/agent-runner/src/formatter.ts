@@ -136,7 +136,7 @@ function formatChatMessages(messages: MessageInRow[]): string {
 
 function formatSingleChat(msg: MessageInRow): string {
   const content = parseContent(msg.content);
-  const sender = content.sender || content.author?.fullName || content.author?.userName || 'Unknown';
+  const sender = content.senderName || content.sender || content.author?.fullName || content.author?.userName || 'Unknown';
   const time = formatTime(msg.timestamp);
   const text = content.text || '';
   const idAttr = msg.seq != null ? ` id="${msg.seq}"` : '';

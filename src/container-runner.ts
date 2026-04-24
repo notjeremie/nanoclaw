@@ -123,6 +123,14 @@ async function spawnContainer(session: Session): Promise<void> {
   // Idle timeout: kill container after IDLE_TIMEOUT of no activity
   let idleTimer = setTimeout(() => killContainer(session.id, 'idle timeout'), IDLE_TIMEOUT);
 
+  // Max lifetime: kill container after 50min regardless of activity so the
+  // next spawn picks up a fresh OAuth token from the keychain (tokens expire ~1h).
+  const MAX_LIFETIME_MS = 50 * 60 * 1000;
+  const maxLifetimeTimer = setTimeout(
+    () => killContainer(session.id, 'max lifetime — token refresh'),
+    MAX_LIFETIME_MS,
+  );
+
   const resetIdle = () => {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => killContainer(session.id, 'idle timeout'), IDLE_TIMEOUT);
@@ -136,6 +144,7 @@ async function spawnContainer(session: Session): Promise<void> {
 
   container.on('close', (code) => {
     clearTimeout(idleTimer);
+    clearTimeout(maxLifetimeTimer);
     activeContainers.delete(session.id);
     markContainerStopped(session.id);
     stopTypingRefresh(session.id);
@@ -144,6 +153,7 @@ async function spawnContainer(session: Session): Promise<void> {
 
   container.on('error', (err) => {
     clearTimeout(idleTimer);
+    clearTimeout(maxLifetimeTimer);
     activeContainers.delete(session.id);
     markContainerStopped(session.id);
     stopTypingRefresh(session.id);
@@ -349,7 +359,13 @@ async function buildContainerArgs(
     }
   }
   if (apiKey) {
-    args.push('-e', `ANTHROPIC_API_KEY=${apiKey}`);
+    // OAuth tokens (sk-ant-oat01-*) must use CLAUDE_CODE_OAUTH_TOKEN.
+    // Real API keys (sk-ant-api03-*) use ANTHROPIC_API_KEY. Detect which.
+    if (apiKey.startsWith('sk-ant-oat01-')) {
+      args.push('-e', `CLAUDE_CODE_OAUTH_TOKEN=${apiKey}`);
+    } else {
+      args.push('-e', `ANTHROPIC_API_KEY=${apiKey}`);
+    }
   } else {
     log.warn('No API key found — container will have no credentials', { containerName });
   }
@@ -406,7 +422,9 @@ async function buildContainerArgs(
 
   // v1 scripts reference /workspace/group/... — symlink to v2's /workspace/agent/
   // so migrated tasks don't need their prompts rewritten.
-  args.push('-c', 'ln -sf /workspace/agent /workspace/group 2>/dev/null; exec bun run /app/src/index.ts');
+  // The base image has /workspace/group as a pre-existing directory. Remove it
+  // (it's empty and unused in v2) before symlinking to /workspace/agent.
+  args.push('-c', 'rm -rf /workspace/group 2>/dev/null; ln -sfn /workspace/agent /workspace/group 2>/dev/null; exec bun run /app/src/index.ts');
 
   return args;
 }
